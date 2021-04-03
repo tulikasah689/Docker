@@ -1,47 +1,98 @@
 pipeline {
-agent any
-tools
-{
-    maven  'Maven3'
-}
-stages {
-stage('start') {
-steps {
-echo 'This is a minimal pipeline.'
+    agent any   
+    environment {
+                    registry = "tulikasah689/ima"
+                    registryCredential = 'dockerhub'
+                    dockerImage = ''
+                 }
+    tools
+    {
+        maven  'Maven3'
+        jdk 'JDK_NEW'
+    }
+    stages {
+        stage('Fetch')
+        {
+            steps
+            {
+                git url : "https://github.com/tulikasah689/Docker.git"
+            }
+        }
+        stage('Build')
+        {
+            steps
+            {
+                echo 'Hello World'
+        echo 'Building.....'
+                bat 'mvn clean install'
+            }
+        }
+        stage('Unit Test')
+        {
+            steps
+            {
+        echo 'Testing....'
+                bat 'mvn test'
+            }
+        }
+        stage('Sonar Analysis')
+        {
+            steps
+            {
+        echo 'Sonar Analysis....'
+                withSonarQubeEnv("SonarQube")
+                {
+                    bat "mvn sonar:sonar"
+                }  
+            }
+        }
+         stage('Upload to Artifactory')
+        {
+            steps
+            {
+            echo 'Uploading....'
+                rtMavenDeployer (
+                    id: 'deployer-unique-id',
+                    serverId: 'artifactory-server',
+                    releaseRepo: 'libs-release-local',
+                    snapshotRepo: 'libs-release-local'
+                )
+                rtMavenRun (
+                pom: 'pom.xml',
+                goals: 'clean install',
+                deployerId: 'deployer-unique-id'
+                )
+                rtPublishBuildInfo (
+                    serverId: 'artifactory-server'
+                        )
+            }
+        }
+        stage('Build Image')
+                    {
+                        steps
+                            {
+                                 bat "docker build -t ima:${BUILD_NUMBER} ."
+                            }
+                    }
 
-}
-}
-stage('fetch') {
-steps {
-    checkout([$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: 'first-app', url: 'https://github.com/tulikasah689/First-App.git']]])
-   // git branch: 'main', credentialsId: 'cacdd6c2-cb35-4841-9050-599f72089fbb', url: 'https://github.com/AnnaMohan/maven.git'
-//git url: 'https://github.com/tulikasah689/First-App.git'
-}
-}
-stage('complie') {
-steps {
-
-bat 'mvn clean install'
-
-}
-}
- stage('SonarQube analysis') {
-           steps {
-                withSonarQubeEnv('SonarQube'){
-                    bat 'mvn sonar:sonar'
+        
+        stage ("Docker Deployment")
+        {
+        steps
+        {
+        bat "docker run  -d -p 9050:8086 ima:${BUILD_NUMBER}"
+        }
+       }
+        stage ("Pushing the image to dockerhub"){
+            steps{
+                script{
+                        docker.withRegistry('https://registry.hub.docker.com', 'dockerhub') { 
+                            bat "docker login -u tulikasah689 -p CallmeDK@1011"
+                            bat "docker tag ima:${BUILD_NUMBER}  tulikasah689/ima:${BUILD_NUMBER}"
+                            bat "docker push tulikasah689/ima:${BUILD_NUMBER}"
                 }
             }
-
-}
- checkout scm
-
-    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub') {
-
-        def customImage = docker.build("tulikasah689/our-web-app")
-
-        /* Push the container to the custom Registry */
-        customImage.push()
-    }
-}
-}
-
+        }    
+      }
+    }  
+  }
